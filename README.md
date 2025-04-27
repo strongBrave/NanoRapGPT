@@ -1,9 +1,8 @@
+# NanoRapGPT (finetuned from GPT-2)
 
-# nanoGPT
+![nanoGPT](assets/NanoRapGPT.png)
 
-![nanoGPT](assets/nanogpt.jpg)
-
-The simplest, fastest repository for training/finetuning medium-sized GPTs. It is a rewrite of [minGPT](https://github.com/karpathy/minGPT) that prioritizes teeth over education. Still under active development, but currently the file `train.py` reproduces GPT-2 (124M) on OpenWebText, running on a single 8XA100 40GB node in about 4 days of training. The code itself is plain and readable: `train.py` is a ~300-line boilerplate training loop and `model.py` a ~300-line GPT model definition, which can optionally load the GPT-2 weights from OpenAI. That's it.
+This repository is a fine-tuned version of the original minGPT project. I have used a custom dataset of rap lyrics that I crawled to fine-tune a GPT-2 model, transforming it into a rap lyrics generator. The code is simple and clean: train.py contains a ~300-line training loop, and model.py is a ~300-line definition of the GPT model, which can optionally load pre-trained GPT-2 weights from OpenAI. The model is still in development, but it already generates creative and unique rap lyrics. Currently, the training process is running on a single 8XA100 40GB node and should take about 4 days to train. Still under active development!
 
 ![repro124m](assets/gpt2_124M_loss.png)
 
@@ -12,7 +11,7 @@ Because the code is so simple, it is very easy to hack to your needs, train new 
 ## install
 
 ```
-pip install torch numpy transformers datasets tiktoken wandb tqdm
+pip install torch numpy transformers datasets tiktoken wandb tqdm lyricsgenius
 ```
 
 Dependencies:
@@ -25,138 +24,66 @@ Dependencies:
 -  `wandb` for optional logging <3
 -  `tqdm` for progress bars <3
 
-## quick start
+## lyrics data generation
 
-If you are not a deep learning professional and you just want to feel the magic and get your feet wet, the fastest way to get started is to train a character-level GPT on the works of Shakespeare. First, we download it as a single (1MB) file and turn it from raw text into one large stream of integers:
+To generate lyrics data, follow these steps:
 
-```sh
-python data/shakespeare_char/prepare.py
-```
-
-This creates a `train.bin` and `val.bin` in that data directory. Now it is time to train your GPT. The size of it very much depends on the computational resources of your system:
-
-**I have a GPU**. Great, we can quickly train a baby GPT with the settings provided in the [config/train_shakespeare_char.py](config/train_shakespeare_char.py) config file:
+### Step 1: Crawl Lyrics Data
+Run the `crawl.py` script to fetch lyrics data from the Genius API. You can specify the target artists either through a file or directly via command-line arguments.
 
 ```sh
-python train.py config/train_shakespeare_char.py
+python data/lyrics/data_generator/crawl.py --user_token=<your_genius_api_token> \
+                                           --data_dir=<output_directory> \
+                                           --max_songs=<max_songs_per_artist> \
+                                           --artist_file=<path_to_artist_file> \
+                                           --artists <artist1> <artist2> ...
 ```
 
-If you peek inside it, you'll see that we're training a GPT with a context size of up to 256 characters, 384 feature channels, and it is a 6-layer Transformer with 6 heads in each layer. On one A100 GPU this training run takes about 3 minutes and the best validation loss is 1.4697. Based on the configuration, the model checkpoints are being written into the `--out_dir` directory `out-shakespeare-char`. So once the training finishes we can sample from the best model by pointing the sampling script at this directory:
+**Key Parameters:**
+- `--user_token`: Your Genius API user token (required).
+- `--data_dir`: Directory to save the crawled data (default: `json`).
+- `--max_songs`: Maximum number of songs to fetch per artist (default: `40`).
+- `--artist_file`: Path to a file containing artist names (one per line).
+- `--artists`: List of artist names provided directly via the command line.
+
+### Step 2: Preprocess Lyrics Data
+Run the `preprocess.py` script to clean and process the crawled lyrics data. This will save the processed data into a single JSON file.
 
 ```sh
-python sample.py --out_dir=out-shakespeare-char
+python data/lyrics/data_generator/preprocess.py --data_dir=<input_directory> \
+                                                --save_dir=<output_directory>
 ```
 
-This generates a few samples, for example:
+**Key Parameters:**
+- `--data_dir`: Directory containing the crawled data (default: `json`).
+- `--save_dir`: Directory to save the processed `data.json` file.
 
-```
-ANGELO:
-And cowards it be strawn to my bed,
-And thrust the gates of my threats,
-Because he that ale away, and hang'd
-An one with him.
+The final `data.json` file will be saved in the specified `save_dir` and can be used for training or fine-tuning the model.
 
-DUKE VINCENTIO:
-I thank your eyes against it.
-
-DUKE VINCENTIO:
-Then will answer him to save the malm:
-And what have you tyrannous shall do this?
-
-DUKE VINCENTIO:
-If you have done evils of all disposition
-To end his power, the day of thrust for a common men
-That I leave, to fight with over-liking
-Hasting in a roseman.
-```
-
-lol  `¯\_(ツ)_/¯`. Not bad for a character-level model after 3 minutes of training on a GPU. Better results are quite likely obtainable by instead finetuning a pretrained GPT-2 model on this dataset (see finetuning section later).
-
-**I only have a macbook** (or other cheap computer). No worries, we can still train a GPT but we want to dial things down a notch. I recommend getting the bleeding edge PyTorch nightly ([select it here](https://pytorch.org/get-started/locally/) when installing) as it is currently quite likely to make your code more efficient. But even without it, a simple train run could look as follows:
+### Step 3: Prepare Binary Files
+Run the `prepare.py` script to convert the processed `data.json` file into binary files (`train.bin` and `val.bin`) for training.
 
 ```sh
-python train.py config/train_shakespeare_char.py --device=cpu --compile=False --eval_iters=20 --log_interval=1 --block_size=64 --batch_size=12 --n_layer=4 --n_head=4 --n_embd=128 --max_iters=2000 --lr_decay_iters=2000 --dropout=0.0
+python data/lyrics/prepare.py
 ```
 
-Here, since we are running on CPU instead of GPU we must set both `--device=cpu` and also turn off PyTorch 2.0 compile with `--compile=False`. Then when we evaluate we get a bit more noisy but faster estimate (`--eval_iters=20`, down from 200), our context size is only 64 characters instead of 256, and the batch size only 12 examples per iteration, not 64. We'll also use a much smaller Transformer (4 layers, 4 heads, 128 embedding size), and decrease the number of iterations to 2000 (and correspondingly usually decay the learning rate to around max_iters with `--lr_decay_iters`). Because our network is so small we also ease down on regularization (`--dropout=0.0`). This still runs in about ~3 minutes, but gets us a loss of only 1.88 and therefore also worse samples, but it's still good fun:
+This script will:
+1. Load the `data.json` file.
+2. Split the dataset into training and validation sets.
+3. Tokenize the lyrics using the GPT-2 tokenizer.
+4. Save the tokenized data into binary files (`train.bin` and `val.bin`).
 
-```sh
-python sample.py --out_dir=out-shakespeare-char --device=cpu
-```
-Generates samples like this:
-
-```
-GLEORKEN VINGHARD III:
-Whell's the couse, the came light gacks,
-And the for mought you in Aut fries the not high shee
-bot thou the sought bechive in that to doth groan you,
-No relving thee post mose the wear
-```
-
-Not bad for ~3 minutes on a CPU, for a hint of the right character gestalt. If you're willing to wait longer, feel free to tune the hyperparameters, increase the size of the network, the context length (`--block_size`), the length of training, etc.
-
-Finally, on Apple Silicon Macbooks and with a recent PyTorch version make sure to add `--device=mps` (short for "Metal Performance Shaders"); PyTorch then uses the on-chip GPU that can *significantly* accelerate training (2-3X) and allow you to use larger networks. See [Issue 28](https://github.com/karpathy/nanoGPT/issues/28) for more.
-
-## reproducing GPT-2
-
-A more serious deep learning professional may be more interested in reproducing GPT-2 results. So here we go - we first tokenize the dataset, in this case the [OpenWebText](https://openwebtext2.readthedocs.io/en/latest/), an open reproduction of OpenAI's (private) WebText:
-
-```sh
-python data/openwebtext/prepare.py
-```
-
-This downloads and tokenizes the [OpenWebText](https://huggingface.co/datasets/openwebtext) dataset. It will create a `train.bin` and `val.bin` which holds the GPT2 BPE token ids in one sequence, stored as raw uint16 bytes. Then we're ready to kick off training. To reproduce GPT-2 (124M) you'll want at least an 8X A100 40GB node and run:
-
-```sh
-torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py
-```
-
-This will run for about 4 days using PyTorch Distributed Data Parallel (DDP) and go down to loss of ~2.85. Now, a GPT-2 model just evaluated on OWT gets a val loss of about 3.11, but if you finetune it it will come down to ~2.85 territory (due to an apparent domain gap), making the two models ~match.
-
-If you're in a cluster environment and you are blessed with multiple GPU nodes you can make GPU go brrrr e.g. across 2 nodes like:
-
-```sh
-# Run on the first (master) node with example IP 123.456.123.456:
-torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123.456 --master_port=1234 train.py
-# Run on the worker node:
-torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
-```
-
-It is a good idea to benchmark your interconnect (e.g. iperf3). In particular, if you don't have Infiniband then also prepend `NCCL_IB_DISABLE=1` to the above launches. Your multinode training will work, but most likely _crawl_. By default checkpoints are periodically written to the `--out_dir`. We can sample from the model by simply `python sample.py`.
-
-Finally, to train on a single GPU simply run the `python train.py` script. Have a look at all of its args, the script tries to be very readable, hackable and transparent. You'll most likely want to tune a number of those variables depending on your needs.
-
-## baselines
-
-OpenAI GPT-2 checkpoints allow us to get some baselines in place for openwebtext. We can get the numbers as follows:
-
-```sh
-$ python train.py config/eval_gpt2.py
-$ python train.py config/eval_gpt2_medium.py
-$ python train.py config/eval_gpt2_large.py
-$ python train.py config/eval_gpt2_xl.py
-```
-
-and observe the following losses on train and val:
-
-| model | params | train loss | val loss |
-| ------| ------ | ---------- | -------- |
-| gpt2 | 124M         | 3.11  | 3.12     |
-| gpt2-medium | 350M  | 2.85  | 2.84     |
-| gpt2-large | 774M   | 2.66  | 2.67     |
-| gpt2-xl | 1558M     | 2.56  | 2.54     |
-
-However, we have to note that GPT-2 was trained on (closed, never released) WebText, while OpenWebText is just a best-effort open reproduction of this dataset. This means there is a dataset domain gap. Indeed, taking the GPT-2 (124M) checkpoint and finetuning on OWT directly for a while reaches loss down to ~2.85. This then becomes the more appropriate baseline w.r.t. reproduction.
+The binary files will be saved in the same directory as the `prepare.py` script and can be used for training/finetuning the model.
 
 ## finetuning
 
 Finetuning is no different than training, we just make sure to initialize from a pretrained model and train with a smaller learning rate. For an example of how to finetune a GPT on new text go to `data/shakespeare` and run `prepare.py` to download the tiny shakespeare dataset and render it into a `train.bin` and `val.bin`, using the OpenAI BPE tokenizer from GPT-2. Unlike OpenWebText this will run in seconds. Finetuning can take very little time, e.g. on a single GPU just a few minutes. Run an example finetuning like:
 
 ```sh
-python train.py config/finetune_shakespeare.py
+python train.py config/finetune_lyrics.py
 ```
 
-This will load the config parameter overrides in `config/finetune_shakespeare.py` (I didn't tune them much though). Basically, we initialize from a GPT2 checkpoint with `init_from` and train as normal, except shorter and with a small learning rate. If you're running out of memory try decreasing the model size (they are `{'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}`) or possibly decreasing the `block_size` (context length). The best checkpoint (lowest validation loss) will be in the `out_dir` directory, e.g. in `out-shakespeare` by default, per the config file. You can then run the code in `sample.py --out_dir=out-shakespeare`:
+This will load the config parameter overrides in `config/finetune_lyrics.py` (I didn't tune them much though). Basically, we initialize from a GPT2 checkpoint with `init_from` and train as normal, except shorter and with a small learning rate. If you're running out of memory try decreasing the model size (they are `{'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}`) or possibly decreasing the `block_size` (context length). The best checkpoint (lowest validation loss) will be in the `out_dir` directory, e.g. in `out-lyrics` by default, per the config file. You can then run the code in `sample.py --out_dir=out-lyrics`:
 
 ```
 THEODORE:
