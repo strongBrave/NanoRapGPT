@@ -1,0 +1,175 @@
+import os
+import json
+import re
+from typing import Dict, Any, List
+
+def clean_lyrics_content(lyrics: str, song_name: str) -> str:
+    """
+    Cleans the lyrics content by performing the following steps:
+    1. Removes content before "Lyrics".
+    2. Removes names after tags like [Intro], [Verse].
+    3. Extracts content after the second occurrence of the same tag (if multiple tags exist).
+    4. Preserves line breaks before tags and removes empty lines.
+    """
+    # 1. Remove content before "Lyrics"
+    if "Lyrics" not in lyrics:
+        print(f"Lyrics not found in song: {song_name}")
+        return lyrics
+    lyrics_content = lyrics.split("Lyrics", 1)[1].strip()
+
+    # 2. Remove names after tags like [Intro], [Verse]
+    lyrics_content = re.sub(r'\[(.*?)(:.*?)\]', r'[\1]', lyrics_content)
+
+
+    # 3. Extracts content between the first and second occurrence of the same tag.
+    lyrics_content = extract_first_tag_content(lyrics_content, song_name)
+
+
+    # 4. Preserve line breaks before tags and remove empty lines
+    lyrics_content = preserve_line_breaks(lyrics_content)
+    
+    return lyrics_content
+
+
+def extract_first_tag_content(lyrics_content: str, song_name: str) -> str:
+    """
+    Removes duplicate sections of lyrics and keeps only the first occurrence.
+    Handles both overall repetition and duplicate sections.
+    """
+    # Remove irrelevant content (e.g., advertisements)
+    lyrics_content = re.sub(r'See .*?Get tickets as low as \$\d+', '', lyrics_content)
+
+    # Detect and remove overall repetition
+    mid_point = len(lyrics_content) // 2
+    first_half = lyrics_content[:mid_point].strip()
+    second_half = lyrics_content[mid_point:].strip()
+    if first_half == second_half:
+        print(f"Overall repetition detected for song {song_name}. Keeping only the first half.")
+        lyrics_content = first_half
+
+    # Split lyrics by tags (e.g., [Chorus], [Verse 1])
+    sections = re.split(r'(\[[^\[\]]+\])', lyrics_content)
+    if len(sections) < 3:
+        print(f"No tags or insufficient content found for song {song_name}. Keeping all content.")
+        return lyrics_content.strip()
+
+    # Reconstruct sections into pairs of [tag, content]
+    structured_sections = []
+    for i in range(1, len(sections), 2):
+        tag = sections[i].strip()
+        content = sections[i + 1].strip() if i + 1 < len(sections) else ""
+        structured_sections.append((tag, content))
+
+    # Detect and remove duplicate sections
+    seen_sections = set()
+    unique_sections = []
+    for tag, content in structured_sections:
+        section_key = f"{tag}:{content}"
+        if section_key not in seen_sections:
+            unique_sections.append(f"{tag}\n{content}")
+            seen_sections.add(section_key)
+        else:
+            print(f"Duplicate section detected: {tag} for song {song_name}. Removing duplicate.")
+
+    # Reconstruct the cleaned lyrics
+    cleaned_lyrics = "\n\n".join(unique_sections)
+    return cleaned_lyrics.strip()
+
+
+def preserve_line_breaks(lyrics_content: str) -> str:
+    """
+    Preserves line breaks before tags and removes empty lines.
+    """
+    # Simplified logic to handle line breaks and empty lines
+    return '\n'.join(
+        f"\n{line.strip()}" if line.strip().startswith('[') and not line.strip().endswith('[Intro]') else line.strip()
+        for line in lyrics_content.splitlines() if line.strip()
+    ).strip()
+
+
+def process_lyrics(lyrics: str, song_name: str) -> str:
+    """
+    Processes the lyrics string by calling the cleaning function.
+    """
+    return clean_lyrics_content(lyrics, song_name)
+
+
+def process_artist_data(data_dir: str, artist: str, debug: bool = False) -> None:
+    """
+    Processes the JSON data for a specific artist and saves the cleaned data.
+
+    Args:
+        data_dir: Path to the data directory.
+        artist: Name of the artist.
+        debug: Whether to enable debug mode (print additional information).
+    """
+    artist_dir = os.path.join(data_dir, artist)
+    meta_path = os.path.join(artist_dir, "meta.json")
+    save_meta_path = os.path.join(artist_dir, "meta_1.json")
+
+    # Read the JSON file
+    with open(meta_path, "r", encoding="utf-8") as f:
+        data: Dict[str, Any] = json.load(f)
+
+    # Process lyrics for each song
+    for song_id, song_data in data.items():
+        if not isinstance(song_data, dict) or 'lyrics' not in song_data:
+            continue
+        
+        song_name = song_data.get('song_name', song_id)
+        lyrics = song_data['lyrics']
+        processed_lyrics = process_lyrics(lyrics, song_name)
+        song_data['lyrics'] = processed_lyrics
+
+    # Save the processed data
+    with open(save_meta_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+    print(f"Saved to {save_meta_path}")
+
+def extract_lyrics_into_dict_from_one_artist(data_dir: str, artist: str) -> List[Dict[str, str]]:
+    """
+    Extracts lyrics from the JSON files of a specific artist and saves them into a dictionary.
+
+    Args:
+        data_dir: Path to the data directory.
+        artist: Name of the artist.
+    """
+    artist_dir = os.path.join(data_dir, artist)
+    meta_path = os.path.join(artist_dir, "meta_1.json")
+    extracted_data = []
+
+    # Read the JSON file
+    with open(meta_path, "r", encoding="utf-8") as f:
+        data: Dict[str, Any] = json.load(f)
+
+    # Process lyrics for each song
+    for song_id, song_data in data.items():
+        if not isinstance(song_data, dict) or 'lyrics' not in song_data:
+            continue
+        
+        processed_lyrics = song_data['lyrics']
+        extracted_data.append({"text": processed_lyrics})
+
+    return extracted_data
+
+def main():
+    """
+    Main function to 
+    1. iterate through the data directory and process artist data.
+    2. extract lyrics into a dictionary and save them into a JSON file (This json file can then be used
+    to converted into huggingface dataset).
+    """
+    data_dir = "json"
+    extracted_datas = []
+    for artist in sorted(os.listdir(data_dir)):
+            process_artist_data(data_dir, artist)
+            extracted_data = extract_lyrics_into_dict_from_one_artist(data_dir, artist)
+            if isinstance(extracted_data, list):
+                extracted_datas.extend(extracted_data)
+
+    with open("lyrics.json", "w", encoding="utf-8") as f:
+        json.dump(extracted_datas, f, indent=4, ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    main()
