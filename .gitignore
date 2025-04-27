@@ -12,3 +12,4 @@ env/
 venv/
 wandb/
 tmp_owt/
+*.json
