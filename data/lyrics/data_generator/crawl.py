@@ -1,3 +1,10 @@
+"""
+This script crawls lyrics from Genius API for specified artists and saves them in a structured format.
+Author: Junhao Yu
+Date: 2023-04-27 21:36
+
+Running command: python parent_dir/crawl.py --user_token='' ...
+"""
 import lyricsgenius
 import os
 import json
@@ -109,17 +116,26 @@ def main():
     parser.add_argument("--user_token", type=str, default="umypAI_bnP36yeZ1USwo2OeevhNLjc3_ybRz_In8YxSXDRHR4Fi7Gzw4sYzC0Tsl", required=True, help="Genius API user token")
     parser.add_argument("--data_dir", type=str, default="json", help="Directory to save song data")
     parser.add_argument("--max_songs", type=int, default=40, help="Maximum number of songs to fetch per artist")
+    parser.add_argument("--artist_file", type=str, default="artist.txt", help="File containing artist names (one per line)")
+    parser.add_argument("--artists", type=str, nargs="*", help="List of artist names provided via command line")
     args = parser.parse_args()
 
     # Create a Genius client
     genius = lyricsgenius.Genius(args.user_token, timeout=20, retries=3)
 
-    # Get target artists' names
-    artists_name = get_tgt_artists_name("artist.txt")
+    # Determine the source of artist names
+    if args.artists:
+        artists_name = args.artists  # Use command-line input if provided
+        if not isinstance(artists_name, list):
+            artists_name = [artists_name]
+        logging.info(f"Using artist names from command-line input: {artists_name}")
+    else:
+        artists_name = get_tgt_artists_name(args.artist_file)  # Fallback to file input
+        logging.info(f"Using artist names from file: {args.artist_file}")
 
     # Get the list of existing songs
     song_list = get_song_list(args.data_dir, artists_name)
-    logger.info(f"Found {len(song_list)} existing songs.")
+    logging.info(f"Found {len(song_list)} existing songs.")
 
     # Prepare arguments for multiprocessing
     args_list = [(genius, artist_name, args.data_dir, song_list, args.max_songs) for artist_name in artists_name]

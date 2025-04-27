@@ -1,7 +1,16 @@
+"""
+This script processes and cleans lyrics data from JSON files for various artists.
+Author: Junhao Yu
+Date: 2025-04-27
+
+Command: python parent_dir/preprocess.py --data_dir="" --save_dir=""
+"""
+# NOTE: The processed lyrics may not be 100% clean, mainly due to the repetitive lyrics problem. If you have time, you can dive into the saved json and try to fix the process script.
 import os
 import json
 import re
 from typing import Dict, Any, List
+import argparse  # Add argparse for command-line arguments
 
 def clean_lyrics_content(lyrics: str, song_name: str) -> str:
     """
@@ -154,21 +163,30 @@ def extract_lyrics_into_dict_from_one_artist(data_dir: str, artist: str) -> List
 
 def main():
     """
-    Main function to 
-    1. iterate through the data directory and process artist data.
-    2. extract lyrics into a dictionary and save them into a JSON file (This json file can then be used
-    to converted into huggingface dataset).
+    Main function to:
+    1. Iterate through the data directory and process artist data.
+    2. Extract lyrics into a dictionary and save them into a JSON file.
     """
-    data_dir = "json"
+    parser = argparse.ArgumentParser(description="Preprocess lyrics data")
+    parser.add_argument("--data_dir", type=str, default="json", help="Directory containing artist data")
+    parser.add_argument("--save_dir", type=str, default="", help="Directory to save the processed data.json file")
+    args = parser.parse_args()
+
+    data_dir = args.data_dir
+    save_dir = args.save_dir
+    os.makedirs(save_dir, exist_ok=True)  # Ensure save_dir exists
+
     extracted_datas = []
     for artist in sorted(os.listdir(data_dir)):
-            process_artist_data(data_dir, artist)
-            extracted_data = extract_lyrics_into_dict_from_one_artist(data_dir, artist)
-            if isinstance(extracted_data, list):
-                extracted_datas.extend(extracted_data)
+        process_artist_data(data_dir, artist)
+        extracted_data = extract_lyrics_into_dict_from_one_artist(data_dir, artist)
+        if isinstance(extracted_data, list):
+            extracted_datas.extend(extracted_data)
 
-    with open("lyrics.json", "w", encoding="utf-8") as f:
+    save_path = os.path.join(save_dir, "data.json")
+    with open(save_path, "w", encoding="utf-8") as f:
         json.dump(extracted_datas, f, indent=4, ensure_ascii=False)
+    print(f"Processed data saved to {save_path}")
 
 
 if __name__ == "__main__":
