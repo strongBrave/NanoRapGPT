@@ -81,10 +81,20 @@ if start.startswith('FILE:'):
 start_ids = encode(start)
 x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
 
+# Specify the output file for saving samples
+output_file = "generated_samples.txt"
+
 # run generation
 with torch.no_grad():
     with ctx:
-        for k in range(num_samples):
-            y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
-            print(decode(y[0].tolist()))
-            print('---------------')
+        with open(output_file, "w", encoding="utf-8") as f:  # Open the file for writing
+            for k in range(num_samples):
+                y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+                sample_text = decode(y[0].tolist())
+                print(sample_text)
+                print('---------------')
+                
+                # Write the sample to the file
+                f.write(f"sample: {k + 1}\n")
+                f.write(sample_text + "\n")
+                f.write("------------------------\n")
