@@ -113,7 +113,7 @@ def process_artist_wrapper(args):
 def main():
     """Main function to orchestrate the lyrics crawling."""
     parser = argparse.ArgumentParser(description="Lyrics Crawler")
-    parser.add_argument("--user_token", type=str, default="umypAI_bnP36yeZ1USwo2OeevhNLjc3_ybRz_In8YxSXDRHR4Fi7Gzw4sYzC0Tsl", required=True, help="Genius API user token")
+    parser.add_argument("--user_token", type=str, required=True, help="Genius API user token")
     parser.add_argument("--data_dir", type=str, default="json", help="Directory to save song data")
     parser.add_argument("--max_songs", type=int, default=40, help="Maximum number of songs to fetch per artist")
     parser.add_argument("--artist_file", type=str, default="artist.txt", help="File containing artist names (one per line)")
