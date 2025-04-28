@@ -1,35 +1,57 @@
-# NanoRapGPT (finetuned from GPT-2)
+# NanoRapGPT (Fine-Tuned GPT-2)
 
 ![nanoGPT](assets/NanoRapGPT.png)
 
-This repository is a fine-tuned version of the original minGPT project. I have used a custom dataset of rap lyrics that I crawled to fine-tune a GPT-2 model, transforming it into a rap lyrics generator. The code is simple and clean: train.py contains a ~300-line training loop, and model.py is a ~300-line definition of the GPT model, which can optionally load pre-trained GPT-2 weights from OpenAI. The model is still in development, but it already generates creative and unique rap lyrics. Currently, the training process is running on a single 8XA100 40GB node and should take about 4 days to train. Still under active development!
+This repository contains a fine-tuned version of the original minGPT project. Using a custom dataset of rap lyrics, I fine-tuned a GPT-2 model to transform it into a rap lyrics generator. The code is simple and modular: `train.py` implements a ~300-line training loop, and `model.py` defines the GPT model in ~300 lines, with optional support for loading pre-trained GPT-2 weights from OpenAI. The model is still under development but already generates creative and unique rap lyrics. Training is performed on a single NVIDIA 3090 24GB GPU and takes less than 10 minutes to fine-tune. This project is under active development!
 
-![repro124m](assets/gpt2_124M_loss.png)
+The simplicity of the code makes it easy to customize, train new models from scratch, or fine-tune pre-trained checkpoints (e.g., the GPT-2 1.3B model from OpenAI).
 
-Because the code is so simple, it is very easy to hack to your needs, train new models from scratch, or finetune pretrained checkpoints (e.g. biggest one currently available as a starting point would be the GPT-2 1.3B model from OpenAI).
+## Disclaimer on Sensitive Content
 
-## install
+This project uses a dataset of rap lyrics, which may contain sensitive or explicit language. Consequently, the generated lyrics might also include such content. Sensitive words have not been filtered out, as they are integral to the rap genre, particularly in the context of American rap culture. Please use this project responsibly and be mindful of the potential for sensitive content in the outputs.
 
-```
+## Updates
+- Since the GPT-2 tokenizer lacks a padding token, a rare token (`token_id=29, >`) is used as a substitute. An attention mask (`attn_mask`) is applied to handle variable-length text during the attention mechanism.
+
+## Installation
+
+Install the required dependencies:
+
+```sh
 pip install torch numpy transformers datasets tiktoken wandb tqdm lyricsgenius
 ```
 
 Dependencies:
+- [PyTorch](https://pytorch.org) <3
+- [NumPy](https://numpy.org/install/) <3
+- `transformers` for Hugging Face Transformers <3 (to load GPT-2 checkpoints)
+- `datasets` for Hugging Face Datasets <3 (for downloading and preprocessing OpenWebText)
+- `tiktoken` for OpenAI's fast BPE tokenizer <3
+- `wandb` for optional logging <3
+- `tqdm` for progress bars <3
 
-- [pytorch](https://pytorch.org) <3
-- [numpy](https://numpy.org/install/) <3
--  `transformers` for huggingface transformers <3 (to load GPT-2 checkpoints)
--  `datasets` for huggingface datasets <3 (if you want to download + preprocess OpenWebText)
--  `tiktoken` for OpenAI's fast BPE code <3
--  `wandb` for optional logging <3
--  `tqdm` for progress bars <3
+## Lyrics Data Generation
 
-## lyrics data generation
+### Option 1: Load Dataset from Hugging Face
+The processed dataset is available on Hugging Face and can be loaded directly:
 
-To generate lyrics data, follow these steps:
+```python
+dataset = load_dataset('JunhaoYu/processed_rap_lyrics', split="train")
+```
 
-### Step 1: Crawl Lyrics Data
-Run the `crawl.py` script to fetch lyrics data from the Genius API. You can specify the target artists either through a file or directly via command-line arguments.
+To generate compatible `train.bin` and `val.bin` files, run the `data/lyrics/prepare.py` script:
+
+```sh
+python data/lyrics/prepare.py
+```
+
+### Option 2: Use a Custom Dataset
+> Tested only on Windows; compatibility with Linux is not guaranteed.
+
+Follow these steps to generate lyrics data:
+
+#### Step 1: Crawl Lyrics Data
+Use the `crawl.py` script to fetch lyrics data from the Genius API. Specify target artists via a file or command-line arguments:
 
 ```sh
 python data/lyrics/data_generator/crawl.py --user_token=<your_genius_api_token> \
@@ -46,8 +68,8 @@ python data/lyrics/data_generator/crawl.py --user_token=<your_genius_api_token> 
 - `--artist_file`: Path to a file containing artist names (one per line).
 - `--artists`: List of artist names provided directly via the command line.
 
-### Step 2: Preprocess Lyrics Data
-Run the `preprocess.py` script to clean and process the crawled lyrics data. This will save the processed data into a single JSON file.
+#### Step 2: Preprocess Lyrics Data
+Run the `preprocess.py` script to clean and process the crawled lyrics data. The processed data will be saved as a single JSON file:
 
 ```sh
 python data/lyrics/data_generator/preprocess.py --data_dir=<input_directory> \
@@ -58,60 +80,58 @@ python data/lyrics/data_generator/preprocess.py --data_dir=<input_directory> \
 - `--data_dir`: Directory containing the crawled data (default: `json`).
 - `--save_dir`: Directory to save the processed `data.json` file.
 
-The final `data.json` file will be saved in the specified `save_dir` and can be used for training or fine-tuning the model.
-
-### Step 3: Prepare Binary Files
-Run the `prepare.py` script to convert the processed `data.json` file into binary files (`train.bin` and `val.bin`) for training.
+#### Step 3: Prepare Binary Files
+Convert the processed `data.json` file into binary files (`train.bin` and `val.bin`) for training:
 
 ```sh
 python data/lyrics/prepare.py
 ```
 
-This script will:
-1. Load the `data.json` file.
-2. Split the dataset into training and validation sets.
-3. Tokenize the lyrics using the GPT-2 tokenizer.
-4. Save the tokenized data into binary files (`train.bin` and `val.bin`).
+This script:
+1. Loads the `data.json` file.
+2. Splits the dataset into training and validation sets.
+3. Tokenizes the lyrics using the GPT-2 tokenizer.
+4. Saves the tokenized data as binary files (`train.bin` and `val.bin`).
 
-The binary files will be saved in the same directory as the `prepare.py` script and can be used for training/finetuning the model.
+## Fine-Tuning
 
-## finetuning
-
-Finetuning is no different than training, we just make sure to initialize from a pretrained model and train with a smaller learning rate. For an example of how to finetune a GPT on new text go to `data/shakespeare` and run `prepare.py` to download the tiny shakespeare dataset and render it into a `train.bin` and `val.bin`, using the OpenAI BPE tokenizer from GPT-2. Unlike OpenWebText this will run in seconds. Finetuning can take very little time, e.g. on a single GPU just a few minutes. Run an example finetuning like:
+Fine-tuning is similar to training but initializes from a pre-trained model and uses a smaller learning rate. To fine-tune the model, run:
 
 ```sh
-python train.py config/finetune_lyrics.py
+python train.py config/finetune_lyrics.py --start="FILE:demo.txt"
 ```
 
-This will load the config parameter overrides in `config/finetune_lyrics.py` (I didn't tune them much though). Basically, we initialize from a GPT2 checkpoint with `init_from` and train as normal, except shorter and with a small learning rate. If you're running out of memory try decreasing the model size (they are `{'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}`) or possibly decreasing the `block_size` (context length). The best checkpoint (lowest validation loss) will be in the `out_dir` directory, e.g. in `out-lyrics` by default, per the config file. You can then run the code in `sample.py --out_dir=out-lyrics`:
+This command uses the configuration in `config/finetune_lyrics.py`. The best checkpoint (lowest validation loss) will be saved in the `out_dir` directory (default: `out-lyrics`). You can then sample from the model using:
 
-```
-THEODORE:
-Thou shalt sell me to the highest bidder: if I die,
-I sell thee to the first; if I go mad,
-I sell thee to the second; if I
-lie, I sell thee to the third; if I slay,
-I sell thee to the fourth: so buy or sell,
-I tell thee again, thou shalt not sell my
-possession.
-
-JULIET:
-And if thou steal, thou shalt not sell thyself.
-
-THEODORE:
-I do not steal; I sell the stolen goods.
-
-THEODORE:
-Thou know'st not what thou sell'st; thou, a woman,
-Thou art ever a victim, a thing of no worth:
-Thou hast no right, no right, but to be sold.
+```sh
+python sample.py --out_dir=out-lyrics
 ```
 
-Whoa there, GPT, entering some dark place over there. I didn't really tune the hyperparameters in the config too much, feel free to try!
+Example input (`demo.txt`):
+```
+[Intro]  
+I'm back with the heat, let the rap begin,  
+Now we break it down, watch the magic spin,  
+AI spitting bars, you know it's a win.  
+```
 
-## sampling / inference
+Example output:
+```
+[Intro]  
+I'm back with the heat, let the rap begin,  
+Now we break it down, watch the magic spin,  
+AI spitting bars, you know it's a win.  
+They say I'm an emcee so I'm thinking I should give them an apology,  
+When on the mic they will not even make eye contact but they can tell I'm tough,  
+I'm going to give it right back to them because they gave them the wrong
+Doomed up in the gang, so you play them good and they still lose.
+They call me the king of their shit, shit like that ain't fun,
+I told you, kids, I'm the king, and I really mean it.
+```
 
-Use the script `sample.py` to sample either from pre-trained GPT-2 models released by OpenAI, or from a model you trained yourself. For example, here is a way to sample from the largest available `gpt2-xl` model:
+## Sampling / Inference
+
+Use `sample.py` to generate text from pre-trained GPT-2 models or your fine-tuned model. For example:
 
 ```sh
 python sample.py \
@@ -120,35 +140,20 @@ python sample.py \
     --num_samples=5 --max_new_tokens=100
 ```
 
-If you'd like to sample from a model you trained, use the `--out_dir` to point the code appropriately. You can also prompt the model with some text from a file, e.g. ```python sample.py --start=FILE:prompt.txt```.
+To sample from your fine-tuned model, specify the `--out_dir` parameter.
 
-## efficiency notes
+## Efficiency Notes
 
-For simple model benchmarking and profiling, `bench.py` might be useful. It's identical to what happens in the meat of the training loop of `train.py`, but omits much of the other complexities.
+For benchmarking and profiling, use `bench.py`. It replicates the core training loop of `train.py` but omits additional complexities.
 
-Note that the code by default uses [PyTorch 2.0](https://pytorch.org/get-started/pytorch-2.0/). At the time of writing (Dec 29, 2022) this makes `torch.compile()` available in the nightly release. The improvement from the one line of code is noticeable, e.g. cutting down iteration time from ~250ms / iter to 135ms / iter. Nice work PyTorch team!
+The code uses [PyTorch 2.0](https://pytorch.org/get-started/pytorch-2.0/), which supports `torch.compile()` for performance optimization. This can significantly reduce iteration time (e.g., from ~250ms to 135ms per iteration).
 
-## todos
+## Troubleshooting
 
-- Investigate and add FSDP instead of DDP
-- Eval zero-shot perplexities on standard evals (e.g. LAMBADA? HELM? etc.)
-- Finetune the finetuning script, I think the hyperparams are not great
-- Schedule for linear batch size increase during training
-- Incorporate other embeddings (rotary, alibi)
-- Separate out the optim buffers from model params in checkpoints I think
-- Additional logging around network health (e.g. gradient clip events, magnitudes)
-- Few more investigations around better init etc.
+If you encounter issues with PyTorch 2.0, disable `torch.compile()` by adding the `--compile=False` flag. This will slow down the code but ensure compatibility.
 
-## troubleshooting
+For additional context, check out the [Zero To Hero series](https://karpathy.ai/zero-to-hero.html), particularly the [GPT video](https://www.youtube.com/watch?v=kCc8FmEb1nY).
 
-Note that by default this repo uses PyTorch 2.0 (i.e. `torch.compile`). This is fairly new and experimental, and not yet available on all platforms (e.g. Windows). If you're running into related error messages try to disable this by adding `--compile=False` flag. This will slow down the code but at least it will run.
-
-For some context on this repository, GPT, and language modeling it might be helpful to watch my [Zero To Hero series](https://karpathy.ai/zero-to-hero.html). Specifically, the [GPT video](https://www.youtube.com/watch?v=kCc8FmEb1nY) is popular if you have some prior language modeling context.
-
-For more questions/discussions feel free to stop by **#nanoGPT** on Discord:
+For discussions, join the **#nanoGPT** channel on Discord:
 
 [![](https://dcbadge.vercel.app/api/server/3zy8kqD9Cp?compact=true&style=flat)](https://discord.gg/3zy8kqD9Cp)
-
-## acknowledgements
-
-All nanoGPT experiments are powered by GPUs on [Lambda labs](https://lambdalabs.com), my favorite Cloud GPU provider. Thank you Lambda labs for sponsoring nanoGPT!
