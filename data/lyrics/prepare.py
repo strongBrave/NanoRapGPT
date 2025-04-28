@@ -5,7 +5,7 @@ import os
 from tqdm import tqdm
 import numpy as np
 import tiktoken
-from datasets import Dataset # huggingface datasets
+from datasets import Dataset, load_dataset # huggingface datasets
 
 # number of workers in .map() call
 # good number to use is ~order number of cpu cores // 2
@@ -19,10 +19,19 @@ num_proc_load_dataset = num_proc
 enc = tiktoken.get_encoding("gpt2")
 
 if __name__ == '__main__':
-    # takes 54GB in huggingface .cache dir, about 8M documents (8,013,769)
-    dataset = Dataset.from_json('data/lyrics/data.json')
+    # ********** Option 1: Load dataset from Hugging Face ********** 
+    dataset = load_dataset('JunhaoYu/processed_rap_lyrics', split="train")
 
-    # lyrics have 825 song lyrics.
+     # Select only the 'text' feature to be compatible with the original dataset structure.
+    dataset = dataset.map(lambda example: {"text": example["text"]}, remove_columns=['song_name', 'artist_name'])
+    # ********** Option 1: Load dataset from Hugging Face ********** 
+
+    # ********** Option 2: Load dataset from local JSON file from manual dataset creation, **********
+    # which is written in the README.md in the project.
+    # dataset = Dataset.from_json('data/lyrics/data.json')
+    # ********** Option 2: Load dataset from local JSON file from manual dataset creation, **********
+
+    # lyrics have 1451 song lyrics.
     split_dataset = dataset.train_test_split(test_size=0.1, seed=2357, shuffle=True)
     split_dataset['val'] = split_dataset.pop('test') # rename the test split to val
 
@@ -31,11 +40,11 @@ if __name__ == '__main__':
     # DatasetDict({
     #     train: Dataset({
     #         features: ['text'],
-    #         num_rows: 742
+    #         num_rows: 1305
     #     })
     #     test: Dataset({
     #         features: ['text'],
-    #         num_rows: 83
+    #         num_rows: 146
     #     })
     # })
 
