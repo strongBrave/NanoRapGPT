@@ -104,7 +104,7 @@ python train.py config/finetune_lyrics.py --start="FILE:demo.txt"
 This command uses the configuration in `config/finetune_lyrics.py`. The best checkpoint (lowest validation loss) will be saved in the `out_dir` directory (default: `out-lyrics`). You can then sample from the model using:
 
 ```sh
-python sample.py --out_dir=out-lyrics
+python sample.py --out_dir=out-lyrics --start="FILE:demo.txt"
 ```
 
 Example input (`demo.txt`):
