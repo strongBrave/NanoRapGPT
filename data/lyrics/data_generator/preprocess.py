@@ -19,6 +19,7 @@ def clean_lyrics_content(lyrics: str, song_name: str) -> str:
     2. Removes names after tags like [Intro], [Verse].
     3. Extracts content after the second occurrence of the same tag (if multiple tags exist).
     4. Preserves line breaks before tags and removes empty lines.
+    5. Filters lyrics based on length and unique word count.
     """
     # 1. Remove content before "Lyrics"
     if "Lyrics" not in lyrics:
@@ -36,6 +37,11 @@ def clean_lyrics_content(lyrics: str, song_name: str) -> str:
 
     # 4. Preserve line breaks before tags and remove empty lines
     lyrics_content = preserve_line_breaks(lyrics_content)
+
+    # 5. Filter lyrics based on length and unique word count
+    if not filter_lyrics(lyrics_content, song_name):
+        print(f"Lyrics for song {song_name} did not pass the filtering criteria.")
+        return ""
     
     return lyrics_content
 
@@ -96,6 +102,37 @@ def preserve_line_breaks(lyrics_content: str) -> str:
     ).strip()
 
 
+def filter_lyrics(lyrics_content: str, song_name: str) -> bool:
+    """
+    Filters lyrics based on two criteria:
+    1. Minimum length of lyrics (e.g., 50 characters).
+    2. Minimum number of unique words (e.g., 10 unique words).
+
+    Args:
+        lyrics_content: The cleaned lyrics content.
+        song_name: The name of the song (for logging purposes).
+
+    Returns:
+        True if the lyrics pass the filtering criteria, False otherwise.
+    """
+    min_length = 1024
+    min_unique_words = 100
+    
+    # Check length
+    if len(lyrics_content) < min_length:
+        print(f"Lyrics for song {song_name} are too short (length: {len(lyrics_content)}).")
+        return False
+
+    # Check unique word count
+    words = re.findall(r'\b\w+\b', lyrics_content.lower())
+    unique_words = set(words)
+    if len(unique_words) < min_unique_words:
+        print(f"Lyrics for song {song_name} have too few unique words (count: {len(unique_words)}).")
+        return False
+
+    return True
+
+
 def process_lyrics(lyrics: str, song_name: str) -> str:
     """
     Processes the lyrics string by calling the cleaning function.
@@ -121,6 +158,7 @@ def process_artist_data(data_dir: str, artist: str, debug: bool = False) -> None
         data: Dict[str, Any] = json.load(f)
 
     # Process lyrics for each song
+    filtered_data = {}
     for song_id, song_data in data.items():
         if not isinstance(song_data, dict) or 'lyrics' not in song_data:
             continue
@@ -128,12 +166,16 @@ def process_artist_data(data_dir: str, artist: str, debug: bool = False) -> None
         song_name = song_data.get('song_name', song_id)
         lyrics = song_data['lyrics']
         processed_lyrics = process_lyrics(lyrics, song_name)
-        song_data['lyrics'] = processed_lyrics
+        
+        # Only include songs that pass the filtering criteria
+        if processed_lyrics:
+            song_data['lyrics'] = processed_lyrics
+            filtered_data[song_id] = song_data
 
-    # Save the processed data
+    # Save the filtered and processed data
     with open(save_meta_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-    print(f"Saved to {save_meta_path}")
+        json.dump(filtered_data, f, indent=4, ensure_ascii=False)
+
 
 def extract_lyrics_into_dict_from_one_artist(data_dir: str, artist: str) -> List[Dict[str, str]]:
     """
