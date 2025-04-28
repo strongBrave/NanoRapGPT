@@ -199,7 +199,11 @@ def extract_lyrics_into_dict_from_one_artist(data_dir: str, artist: str) -> List
             continue
         
         processed_lyrics = song_data['lyrics']
-        extracted_data.append({"text": processed_lyrics})
+        song_name = song_data.get('song_name', song_id)
+        artist_name = artist
+        extracted_data.append({"text": processed_lyrics,
+                               "song_name": song_name,
+                               "artist_name": artist_name,})
 
     return extracted_data
 
