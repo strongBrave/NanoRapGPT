@@ -114,22 +114,43 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 # poor man's data loader
 data_dir = os.path.join('data', dataset)
+pad_token_id = 29  # Define the pad token ID as rate token, neven seen once in the dataset
 def get_batch(split):
-    # We recreate np.memmap every batch to avoid a memory leak, as per
-    # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
+    # Load the dataset
     if split == 'train':
         data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
     else:
         data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
+    # Split the data into individual songs based on the end-of-text token (e.g., 50256 for GPT-2)
+    eot_token_id = 50256
+    songs = np.split(data, np.where(data == eot_token_id)[0] + 1)
+
+    # Randomly sample songs for the batch
+    batch_songs = [songs[i] for i in torch.randint(len(songs), (batch_size,))]
+    x = torch.zeros((batch_size, block_size), dtype=torch.long) + pad_token_id
+    y = torch.zeros((batch_size, block_size), dtype=torch.long) + pad_token_id
+    attn_mask = torch.zeros((batch_size, block_size), dtype=torch.long)
+
+    for i, song in enumerate(batch_songs):
+        uniform_length = min(len(song), block_size)
+
+        song = song[:uniform_length]  # Truncate or pad the song to the block size
+        song = song.astype(np.int64)  # Convert to int64 to make it compatible with PyTorch
+        x[i, :uniform_length] = torch.from_numpy(song)
+        attn_mask[i, :uniform_length] = 1
+
+        if uniform_length > 1:  # Ensure song length is greater than 1
+            y[i, :uniform_length - 1] = torch.from_numpy(song[1:])  # Shifted version of x for labels
+        else:
+            y[i, :uniform_length - 1] = pad_token_id  # Fill with pad_token_id if song length is 1
+
     if device_type == 'cuda':
-        # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
         x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
+        attn_mask = attn_mask.pin_memory().to(device, non_blocking=True)
     else:
         x, y = x.to(device), y.to(device)
-    return x, y
+        attn_mask = attn_mask.to(device)
+    return x, y, attn_mask
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
@@ -220,9 +241,14 @@ def estimate_loss():
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
-            X, Y = get_batch(split)
+            X, Y, attn_mask = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss = model(X, Y, attn_mask)
+            # Safety check: detect NaN or Inf in the loss
+            if torch.isnan(loss) or torch.isinf(loss):
+                print("Loss became NaN or Inf!")
+                print(logits)
+                loss = torch.tensor(0.0, device=loss.device, requires_grad=True)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -248,7 +274,7 @@ if wandb_log and master_process:
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # training loop
-X, Y = get_batch('train') # fetch the very first batch
+X, Y, attn_mask = get_batch('train') # fetch the very first batch
 t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
@@ -298,10 +324,10 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            logits, loss = model(X, Y)
+            logits, loss = model(X, Y, attn_mask)
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
-        X, Y = get_batch('train')
+        X, Y, attn_mask = get_batch('train')
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
     # clip the gradient
